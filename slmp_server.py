@@ -2,11 +2,21 @@ from socketserver import UDPServer, TCPServer
 from socketserver import DatagramRequestHandler, StreamRequestHandler
 import struct
 import time
+import random
+
+class FuncInc:
+    def __init__(self):
+        self.counter = 1
+
+    def inc(self, delta=1):
+        self.counter += delta
+        return self.counter
 
 # XXX only 3E UDP, TCP
 class SLMPServerProcess:
 
     def server_process(self, opt):
+        self.opt = opt
         def parse_command_ascii(data):
             d = struct.unpack("4s4s6s2s", data)
             return (int(d[0], 16), int(d[1], 16), d[2].decode(), int(d[3],16))
@@ -102,7 +112,7 @@ class SLMPServerProcess:
         ret_data.append(struct.pack("<H", data_length))
         ret_data.append(struct.pack("<H", end_code))
         for i in range(read_num):
-            ret_data.append(struct.pack(pack_code, int((i+time.time())%100)))
+            ret_data.append(struct.pack(pack_code, opt.func_resp_data(i)))
         self.wfile.write(self.make_response(ret_data))
 
 class TCPHandler(StreamRequestHandler, SLMPServerProcess):
@@ -133,6 +143,10 @@ ap.add_argument("-s", action="store", dest="server_addr",
 ap.add_argument("-p", action="store", dest="server_port",
                 type=int, default=1025,
                 help="specify the server address.")
+ap.add_argument("-F", action="store", dest="func_type",
+                default="r100",
+                choices=["c1", "r10", "r100", "rand", "inc"],
+                help="enable 4E mode.")
 opt = ap.parse_args()
 
 if opt.enable_tcp:
@@ -141,6 +155,20 @@ if opt.enable_tcp:
 else:
     ServerClass = UDPServer
     HandlerClass = UDPHandler
+
+if opt.func_type == "c1":
+    opt.func_resp_data = lambda i: 1
+elif opt.func_type == "r10":
+    opt.func_resp_data = lambda i: int((i+time.time())%10)
+elif opt.func_type == "r100":
+    opt.func_resp_data = lambda i: int((i+time.time())%100)
+elif opt.func_type == "rand":
+    opt.func_resp_data = lambda i: int(random.random()*100)
+elif opt.func_type == "inc":
+    f = FuncInc()
+    opt.func_resp_data = lambda i: f.inc()
+else:
+    raise ValueError(f"invalid func_type {opt.func_type}")
 
 server = ServerClass((opt.server_addr, opt.server_port), HandlerClass)
 print("listening on {} {}:{}".format("TCP" if opt.enable_tcp else "UDP",
